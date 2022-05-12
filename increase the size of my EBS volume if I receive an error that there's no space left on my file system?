@@ -1,0 +1,104 @@
+Short description
+To avoid No space left on device errors when expanding the root partition or root file system on your EBS volume, use the temporary file system, tmpfs, that resides in memory. Mount the tmpfs file system under the /tmp mount point, and then expand your root partition or root file system.
+
+Example
+
+The following example shows that the root EBS volume block device (/dev/nvme0n1) is 9 GiB, and the root partition (partition 1) is already 8 GiB.
+$ lsblk
+NAME          MAJ:MIN RM SIZE RO TYPE MOUNTPOINT
+nvme0n1       259:0    0   9G  0 disk
+├─nvme0n1p1   259:1    0   8G  0 part /
+└─nvme0n1p128 259:2    0   1M  0 part
+If you attempt to increase the root partition (partition 1), you receive one of the following errors:  
+
+$ sudo growpart /dev/nvme0n1 1
+/bin/growpart: line 248: /tmp/growpart.fklt5u/dump.out: No space left on device
+FAILED: failed to dump sfdisk info for /dev/nvme0n1
+-or-
+
+$ sudo growpart /dev/nvme0n1 1
+CHANGED: partition=1 start=4096 old: size=16773087 end=16777183 new: size=18870239 end=18874335
+FAILED: failed: sfdisk --list /dev/nvme0n1
+Note: It's a best practice to create an Amazon Machine Image (AMI) backup of the instance or a snapshot of the root EBS volume that's attached to your instance before attempting the resolution steps. A backup allows you to recover your data from unforeseen issues.
+
+
+
+Resolution
+1.    Connect to your Amazon Elastic Compute Cloud (Amazon EC2) Linux instance using SSH.
+
+
+2.    Use the df -h command to verify that the root partition mounted under "/" is full (100%). In the following example, /dev/nvme0n1p1 is using 100% of its space.
+$ df -h
+Filesystem      Size  Used Avail Use% Mounted on
+devtmpfs        460M     0  475M   0% /dev
+tmpfs           478M     0  492M   0% /dev/shm
+tmpfs           478M  432K  492M   1% /run
+tmpfs           478M     0  492M   0% /sys/fs/cgroup
+/dev/nvme0n1p1  8.0G  8.0G  664K 100% /
+tmpfs            96M     0   99M   0% /run/user/1000
+
+
+3.    Run the following commands to gather details about your attached block devices and the root "/" mount point.
+
+$ lsblk
+NAME          MAJ:MIN RM SIZE RO TYPE MOUNTPOINT
+nvme0n1       259:0    0   9G  0 disk
+├─nvme0n1p1   259:1    0   8G  0 part /
+└─nvme0n1p128 259:2    0   1M  0 part
+$ lsblk -f
+NAME          FSTYPE LABEL           UUID                                 MOUNTPOINT
+nvme0n1
+├─nvme0n1p1   xfs    /               afcf1342-1d40-41bd-bde9-e4ea5d87e3b6 /
+└─nvme0n1p128
+In the preceding example output, the root EBS volume has 9 GiB of total space but the root partition (/dev/nvme0n1p1) or partition 1, is only 8 GiB. The file system type is XFS.
+
+4.    To avoid a No space left on the block device error, mount the temporary file system tmpfs to the /tmp mount point. This creates a 10 M tmpfs mounted to /tmp.
+
+$ sudo mount -o size=10M,rw,nodev,nosuid -t tmpfs tmpfs /tmp
+
+
+5.    Run the growpart command to grow the size of the root partition or partition 1. Replace /dev/nvme0n1 with your root partition.
+
+$ sudo growpart /dev/nvme0n1 1 
+CHANGED: partition=1 start=4096 old: size=16773087 end=16777183 new: size=18870239 end=18874335
+Run the lsblk command to verify that partition 1 is expanded to 9 GiB.
+
+$ lsblk
+NAME          MAJ:MIN RM SIZE RO TYPE MOUNTPOINT
+nvme0n1       259:0    0   9G  0 disk
+├─nvme0n1p1   259:1    0   9G  0 part /
+└─nvme0n1p128 259:2    0   1M  0 part
+
+6.    Expand the file system. Refer to step 3 to verify the file system of your root partition "/".
+
+In the following example, an XFS-type file system is expanded.
+
+$ sudo xfs_growfs -d /
+data blocks changed from 2096635 to 2358779
+         =                       sectsz=512   sunit=0 blks, lazy-count=1
+log      =internal               bsize=4096   blocks=2560, version=2
+naming   =version 2              bsize=4096   ascii-ci=0 ftype=1
+         =                       sunit=0      swidth=0 blks
+data     =                       bsize=4096   blocks=2096635, imaxpct=25
+         =                       crc=1        finobt=1 spinodes=0
+         =                       sectsz=512   attr=2, projid32bit=1
+realtime =none                   extsz=4096   blocks=0, rtextents=0
+meta-data=/dev/nvme0n1p1         isize=512    agcount=4, agsize=524159 blks
+
+In the following example, an EXT2/EXT3/EXT4 file system on partition 1 is expanded:
+
+$ sudo resize2fs /dev/nvme0n1p1
+7.    After expanding the file system, use the df -h command to verify that the OS can see the additional space.
+
+$ df -h
+Filesystem      Size  Used Avail Use% Mounted on
+devtmpfs        960M     0  960M   0% /dev
+tmpfs           978M     0  978M   0% /dev/shm
+tmpfs           978M  392K  978M   1% /run
+tmpfs           978M     0  978M   0% /sys/fs/cgroup
+/dev/nvme0n1p1  9.0G  8.0G 1022M  89% /
+tmpfs           196M     0  196M   0% /run/user/1000
+tmpfs            10M     0   10M   0% /tmp
+8.    Run the unmount command to unmount the tmpfs file system.
+
+$ sudo umount /tmp
