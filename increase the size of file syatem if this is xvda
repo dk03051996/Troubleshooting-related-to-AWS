@@ -1,0 +1,15 @@
+df -h # to check storages
+
+sudo lsblk to check the partitions
+
+sudo growpart /dev/xvda 1 to set xvda to desired size
+
+sudo lsblk  #to check parttition is done successfully
+
+df -hT       #to check disk file system type
+
+
+sudo resize2fs /dev/xvda1         #to merge the modified size
+
+
+df -h.   # to check new size of disk
